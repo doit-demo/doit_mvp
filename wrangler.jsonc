@@ -5,5 +5,5 @@
   "workers_dev": true, "observability": {"enabled": true},
   "d1_databases": [{"binding":"DB","database_name":"doit-r02","database_id":"50d36767-62bf-4bcd-b175-009b7cba84e7","migrations_dir":"migrations"}],
   "r2_buckets": [{"binding":"FILES","bucket_name":"doit-r02-evidence"}],
-  "vars": {"ENVIRONMENT":"production","VERSION":"R0.2.3","UPLOAD_MAX_BYTES":"26214400"}
+  "vars": {"ENVIRONMENT":"production","VERSION":"R0.2.3","UPLOAD_MAX_BYTES":"26214400","VWORLD_BROWSER_ENABLED":"true"}
 }
