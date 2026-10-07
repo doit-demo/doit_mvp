@@ -1,5 +1,14 @@
 # 실행 및 운영
 
+## VWorld 인증키
+로컬 키는 Git 제외된 `.env`의 `VWORLD_API_KEY`로 관리합니다. `.env.example`에는 변수 이름만 둡니다. 배포 환경에는 같은 이름의 Cloudflare Worker Secret으로 별도 저장했습니다. `.env` 파일 자체는 배포하지 않습니다.
+
+R0.2.3: VWorld 서버 중계는 Cloudflare에서 upstream 520을 반환했습니다(로컬 동일 키 PNG 200). 사용자가 도메인 제한 후 브라우저 직접 요청 방식으로 전환하도록 승인했습니다. `/api/geo/config`는 로그인 사용자에게만 응답하며, `VWORLD_BROWSER_ENABLED=true`와 키가 함께 설정된 경우에만 VWorld 타일 URL을 반환합니다. 키는 정적 번들에 포함하지 않지만 직접 요청이 활성화되면 로그인한 사용자의 네트워크 요청에 표시됩니다.
+
+현재 다른 도메인 Referer에도 이미지가 반환되어 제한을 확인하지 못했습니다. 사용자에게 VWorld 키 설정 확인을 요청했고 활성화 스위치는 꺼두었습니다. 그동안 OSM 대체 지도를 표시합니다. 제한 확인 전에는 스위치를 켜지 않습니다. 지도 장애 시에도 OSM과 좌표 입력을 유지합니다.
+
+검증 명령 `node scripts/geo-live-test.mjs`는 기본적으로 비활성/OSM 상태를 검사합니다. 직접 연결 활성화 후에는 환경변수 `DOIT_EXPECT_VWORLD=true`로 실행하여 실제 VWorld 응답과 화면을 검증합니다. `/api/health`의 geo_status는 구성 상태이며 외부 지도 서버 실시간 가용성을 보장하지 않습니다.
+
 ## 웹 접속
 서비스: https://doit-r02.namcot.workers.dev
 
