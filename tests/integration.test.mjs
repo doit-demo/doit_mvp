@@ -5,20 +5,42 @@ import worker from '../core/worker.ts';
 import {LocalDB,LocalBucket} from './local-env.mjs';
 import {pbkdf2Sync} from 'node:crypto';
 
-let mf,db;
+let mf,db,env;
 const password='DOIT-test-password!';
 const actors=[['c1','CLIENT'],['c2','CLIENT'],['a1','AGENT'],['a2','AGENT'],['admin','ADMIN']];
 const sessions={};
 before(async()=>{
  db=new LocalDB();
- const env={DB:db,FILES:new LocalBucket(),ENVIRONMENT:'test',VERSION:'test',UPLOAD_MAX_BYTES:'1048576'};
+ env={DB:db,FILES:new LocalBucket(),ENVIRONMENT:'test',VERSION:'test',UPLOAD_MAX_BYTES:'1048576'};
  mf={dispatchFetch:(url,options)=>worker.fetch(new Request(url,options),env,{}),dispose:()=>db.close()};
  const sql=await readFile('migrations/0001_initial.sql','utf8');
  // exec supports multiple SQL statements including triggers.
  await db.exec(sql.replace(/\r?\n/g,' '));
+ await db.exec(await readFile('migrations/0002_gps_timestamp.sql','utf8'));
  const salt='00112233445566778899aabbccddeeff';
  const hash=pbkdf2Sync(password,salt,100000,32,'sha256').toString('hex');
  for(const [id,role] of actors)await db.prepare('INSERT INTO users VALUES (?,?,?,?,?,?)').bind(id,id+'@doit.test',id,role,`pbkdf2$100000$${salt}$${hash}`,new Date().toISOString()).run();
+});
+test('Security and failure cases with real SQLite transactions',async t=>{
+ for(const [id] of actors)await login(id);
+ let id;
+ const photo=await readFile('tests/fixtures/sample.png');
+ const upload=(data=photo,name='test.png',mime='image/png')=>{const f=new FormData();f.append('file',new Blob([data],{type:mime}),name);f.append('note','exception test');return f;};
+ await t.test('Invalid task coordinates and blank title rejected',async()=>{for(const patch of [{title:' '},{target_lat:91},{target_lng:'127'}])assert.equal((await request('/tasks',{actor:'c1',method:'POST',body:{...taskBody,...patch}})).status,422)});
+ await t.test('Agent cannot create a Client task',async()=>assert.equal((await request('/tasks',{actor:'a1',method:'POST',body:taskBody})).status,403));
+ const created=await request('/tasks',{actor:'c1',method:'POST',body:taskBody});assert.equal(created.status,201);id=(await created.json()).id;
+ await t.test('Client cannot assign; role header spoofing denied',async()=>{assert.equal((await request('/tasks/'+id+'/assign',{actor:'c1',method:'POST',body:{agent_id:'a1'}})).status,403);assert.equal((await request('/tasks/'+id+'/assign',{actor:'c1',method:'POST',body:{agent_id:'a1'},headers:{'x-doit-role':'ADMIN'}})).status,401)});
+ await t.test('Assignment cannot target a Client',async()=>assert.equal((await request('/tasks/'+id+'/assign',{actor:'admin',method:'POST',body:{agent_id:'c2'}})).status,422));
+ await request('/tasks/'+id+'/assign',{actor:'admin',method:'POST',body:{agent_id:'a1'}});await request('/tasks/'+id+'/accept',{actor:'a1',method:'POST',body:{}});await request('/tasks/'+id+'/start',{actor:'a1',method:'POST',body:{}});
+ await t.test('Oversized body rejected with 413',async()=>assert.equal((await request('/tasks/'+id+'/evidence',{actor:'a1',method:'POST',body:upload(new Uint8Array(1100000))})).status,413));
+ await t.test('Declared MIME mismatch rejected',async()=>assert.equal((await request('/tasks/'+id+'/evidence',{actor:'a1',method:'POST',body:upload(photo,'test.png','video/mp4')})).status,415));
+ await t.test('Header-only JPEG and MP4 cannot satisfy Evidence',async()=>{assert.equal((await request('/tasks/'+id+'/evidence',{actor:'a1',method:'POST',body:upload(Uint8Array.from([255,216,255,0]),'fake.jpg','image/jpeg')})).status,415);const fake=Buffer.from('000000186674797069736f6d0000020069736f6d69736f32','hex');assert.equal((await request('/tasks/'+id+'/evidence',{actor:'a1',method:'POST',body:upload(fake,'fake.mp4','video/mp4')})).status,415)});
+ await t.test('SHA256 is actual content digest',async()=>{const e=await(await request('/tasks/'+id+'/evidence',{actor:'a1',method:'POST',body:upload()})).json();const {createHash}=await import('node:crypto');assert.equal(e.sha256,createHash('sha256').update(photo).digest('hex'));});
+ await t.test('Database failure removes newly uploaded object only',async()=>{const keys=[...env.FILES.objects.keys()];const original=db.batch.bind(db);db.batch=async()=>{throw new Error('injected database failure')};try{assert.equal((await request('/tasks/'+id+'/evidence',{actor:'a1',method:'POST',body:upload()})).status,500)}finally{db.batch=original}assert.deepEqual([...env.FILES.objects.keys()],keys)});
+ await t.test('Video upload and ranged authenticated content',async()=>{const video=await readFile('tests/fixtures/sample.webm');const r=await request('/tasks/'+id+'/evidence',{actor:'a1',method:'POST',body:upload(video,'sample.webm','video/webm')});assert.equal(r.status,201,await r.clone().text());const e=await r.json();const range=await request('/evidence/'+e.id+'/content',{actor:'c1',headers:{range:'bytes=0-9'}});assert.equal(range.status,206);assert.equal((await range.arrayBuffer()).byteLength,10);assert.equal((await request('/evidence/'+e.id+'/content',{actor:'c1',headers:{range:'bytes=9000000-'}})).status,416);assert.equal((await request('/evidence/'+e.id+'/content')).status,401)});
+ await t.test('Exclude Evidence preserves original and audits reason',async()=>{const e=await(await request('/tasks/'+id+'/evidence',{actor:'a1',method:'POST',body:upload()})).json();assert.equal((await request('/evidence/'+e.id+'/remove',{actor:'a1',method:'POST',body:{reason:'다시 촬영'}})).status,200);assert.equal((await request('/evidence/'+e.id+'/content',{actor:'c1'})).status,200);const d=await(await request('/tasks/'+id,{actor:'c1'})).json();assert.equal(d.timeline.at(-1).action,'EVIDENCE_REMOVED');assert.equal(d.timeline.at(-1).detail.reason,'다시 촬영')});
+ await t.test('Invalid fractional pagination returns validation error',async()=>assert.equal((await request('/tasks?page=0.01',{actor:'c1'})).status,422));
+ await t.test('Logout invalidates session',async()=>{assert.equal((await request('/auth/logout',{actor:'a2',method:'POST',body:{}})).status,200);assert.equal((await request('/auth/me',{actor:'a2'})).status,401)});
 });
 after(async()=>{await mf?.dispose()});
 async function request(path,{actor,method='GET',body,headers={}}={}){
@@ -41,7 +63,7 @@ test('CORE end-to-end and ownership enforcement',async t=>{
  await t.test('Agent cannot verify',async()=>assert.equal((await request('/tasks/'+id+'/verify',{actor:'a1',method:'POST',body:{}})).status,403));
  await t.test('CSRF is required',async()=>assert.equal((await request('/tasks/'+id+'/submit',{actor:'a1',method:'POST',body:{},headers:{'x-csrf-token':'bad'}})).status,403));
  await t.test('Assigned task and timeline are visible to Client',async()=>{const r=await request('/tasks/'+id,{actor:'c1'});assert.equal(r.status,200);const d=await r.json();assert.equal(d.task.agent_id,'a1');assert.deepEqual(d.timeline.map(x=>x.action),['TASK_CREATED','AGENT_ASSIGNED','TASK_ACCEPTED','EXECUTION_STARTED']);});
- const photo=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a3ioAAAAASUVORK5CYII=','base64');
+ const photo=await readFile('tests/fixtures/sample.png');
  function upload(data=photo,name='site.png',type='image/png'){const form=new FormData();form.append('file',new Blob([data],{type}),name);form.append('latitude','37.5665');form.append('longitude','126.978');form.append('note','현장 확인');return form}
  let evidenceId;
  await t.test('Other Agent cannot upload',async()=>assert.equal((await request('/tasks/'+id+'/evidence',{actor:'a2',method:'POST',body:upload()})).status,404));
