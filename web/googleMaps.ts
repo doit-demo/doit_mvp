@@ -23,8 +23,18 @@ export function loadGoogleMaps():Promise<typeof google.maps>{
   });
  });
 }
-export type AddressCandidate={id:string;address:string;lat:number;lng:number;precision:string;partial:boolean};
+export type AddressCandidate={id:string;address:string;lat:number;lng:number;precision:string;partial:boolean;provider?:string};
 export async function searchAddress(address:string,country:string):Promise<AddressCandidate[]>{
+ const config=await getMapConfig();
+ if(config.provider==='maptiler'&&config.browser_key){
+  const url=new URL('https://api.maptiler.com/geocoding/'+encodeURIComponent(address.trim())+'.json');
+  url.search=new URLSearchParams({key:config.browser_key,limit:'5',autocomplete:'false',...(country?{country:country.toLowerCase()}:{})}).toString();
+  let response:Response;
+  try{response=await fetch(url,{signal:AbortSignal.timeout(12000),referrerPolicy:'origin'});}catch{throw new Error('주소 검색 연결에 실패했습니다. 잠시 후 다시 시도해 주세요.');}
+  if(!response.ok)throw new Error(response.status===429?'주소 검색 한도에 도달했습니다.':'주소 검색에 실패했습니다. 서비스 설정을 확인해 주세요.');
+  const data=await response.json() as {features?:{id:string;place_name:string;center:number[];place_type:string[]}[]};
+  return (data.features||[]).filter(f=>f.center?.length===2&&f.center.every(Number.isFinite)).map(f=>({id:f.id,address:f.place_name,lat:f.center[1],lng:f.center[0],precision:f.place_type?.includes('address')?'ADDRESS':'APPROXIMATE',partial:false,provider:'MapTiler'}));
+ }
  const maps=await loadGoogleMaps();
  const {Geocoder}=await maps.importLibrary('geocoding') as google.maps.GeocodingLibrary;
  return new Promise((resolve,reject)=>{

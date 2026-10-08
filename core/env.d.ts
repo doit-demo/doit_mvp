@@ -1,1 +1,1 @@
-interface Env { VWORLD_API_KEY?: string; VWORLD_BROWSER_ENABLED?: string; GOOGLE_MAPS_BROWSER_KEY?: string }
+interface Env { GCP_PROJECT_ID?: string; GCP_LOCATION?: string; GCP_SERVICE_ACCOUNT_JSON?: string; GEMINI_MODEL?: string; VWORLD_API_KEY?: string; VWORLD_BROWSER_ENABLED?: string; GOOGLE_MAPS_BROWSER_KEY?: string; MAPTILER_API_KEY?: string }

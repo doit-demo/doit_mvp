@@ -1,6 +1,7 @@
 import {fail,json} from './http.ts';
 
 export function mapConfig(env:Env){
+ if(env.MAPTILER_API_KEY)return json({provider:'maptiler',browser_key:env.MAPTILER_API_KEY,tile_url:`https://api.maptiler.com/maps/streets-v4/256/{z}/{x}/{y}.png?key=${encodeURIComponent(env.MAPTILER_API_KEY)}`});
  if(env.GOOGLE_MAPS_BROWSER_KEY)return json({provider:'google',browser_key:env.GOOGLE_MAPS_BROWSER_KEY});
  if(env.VWORLD_BROWSER_ENABLED!=='true'||!env.VWORLD_API_KEY)return json({provider:'osm',reason:'vworld_domain_pending'});
  return json({provider:'vworld',tile_url:`https://api.vworld.kr/req/wmts/1.0.0/${encodeURIComponent(env.VWORLD_API_KEY)}/Base/{z}/{y}/{x}.png`});
