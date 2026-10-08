@@ -1,0 +1,3 @@
+import {createPortal} from 'react-dom';
+import {tr} from './i18n';
+export function SubmissionPreview({title,fields,busy,confirm,close}:{title:string;fields:[string,string][];busy:boolean;confirm:()=>void;close:()=>void}){return createPortal(<div className="document-overlay" role="dialog" aria-modal="true" aria-label={tr(title)}><div className="document-toolbar"><button disabled={busy} onClick={close}>{tr('계속 작성')}</button><button className="primary" disabled={busy} onClick={confirm}>{tr('확인 후 제출')}</button></div><article className="document-sheet"><h1>{tr(title)}</h1>{fields.map(([label,value])=><section key={label}><h3>{tr(label)}</h3><p className="pre">{value||'—'}</p></section>)}<p className="hint">{tr('제출 후 발행 문서는 변경할 수 없습니다.')}</p></article></div>,document.body);}

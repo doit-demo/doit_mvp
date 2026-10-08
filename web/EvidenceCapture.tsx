@@ -1,0 +1,17 @@
+import {useEffect,useRef,useState} from 'react';
+import {tr,uiLanguage} from './i18n';
+import {collectLocation,type LocationReading} from './gps';
+import {TextAssistant} from './TextAssistant';
+const maxBytes=25*1024*1024;
+export function EvidenceCapture({busy,upload}:{busy:boolean;upload:(body:FormData)=>Promise<boolean>}){
+ const [file,setFile]=useState<File|null>(null),[preview,setPreview]=useState(''),[note,setNote]=useState(''),[gps,setGPS]=useState<LocationReading|null>(null),[message,setMessage]=useState(''),[locating,setLocating]=useState(false);
+ const photo=useRef<HTMLInputElement>(null),video=useRef<HTMLInputElement>(null),library=useRef<HTMLInputElement>(null);
+ useEffect(()=>{if(!file){setPreview('');return;}const url=URL.createObjectURL(file);setPreview(url);return()=>URL.revokeObjectURL(url)},[file]);
+ function choose(next:File|undefined){if(!next)return;setFile(null);setMessage('');if(!next.size||next.size>maxBytes){setMessage(tr('파일당 최대 25MB입니다. 짧게 다시 촬영하거나 다른 파일을 선택하세요.'));return;}if(!/\.(jpe?g|png|webp|mp4|webm)$/i.test(next.name)){setMessage(tr('JPG·PNG·WEBP·MP4·WEBM만 지원합니다. HEIC·MOV 파일은 변환 후 선택하세요.'));return;}setFile(next);setGPS(null);}
+ async function locate(){setLocating(true);setMessage('');try{const result=await collectLocation(setGPS,navigator.geolocation);setMessage(tr('GPS 기록 완료 · 정확도 ±')+Math.round(result.accuracy)+' m');}catch(e){setMessage((e as Error).message)}finally{setLocating(false)}}
+ return <section className="panel content"><h2>{tr('현장 기록 등록')}</h2><p className="hint">{tr('촬영 후 미리보기를 확인하고 업로드하세요. 카메라 실행 방식은 기기와 브라우저에 따라 다릅니다.')}</p><form onSubmit={async e=>{e.preventDefault();if(!file)return;const form=new FormData();form.set('file',file);form.set('note',note);if(gps)for(const [k,v] of Object.entries(gps))form.set(k,String(v));if(await upload(form)){setFile(null);setGPS(null);setNote('');setMessage(tr('업로드 완료'));}}}><fieldset disabled={busy||locating}><div className="button-row"><button type="button" onClick={()=>photo.current?.click()}>{tr('사진 촬영')}</button><button type="button" onClick={()=>video.current?.click()}>{tr('영상 촬영')}</button><button type="button" onClick={()=>library.current?.click()}>{tr('기존 파일 선택')}</button></div>
+ <input ref={photo} hidden type="file" accept="image/*" capture="environment" onChange={e=>{choose(e.target.files?.[0]);e.target.value=''}}/><input ref={video} hidden type="file" accept="video/*" capture="environment" onChange={e=>{choose(e.target.files?.[0]);e.target.value=''}}/><input ref={library} hidden type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm" onChange={e=>{choose(e.target.files?.[0]);e.target.value=''}}/>
+ {file&&<div className="capture-preview">{(/\.(mp4|webm)$/i.test(file.name))?<video src={preview} controls playsInline/>:<img src={preview} alt={tr('촬영 미리보기')}/>}<p>{file.name} · {(file.size/1048576).toFixed(2)} MB</p><button type="button" onClick={()=>setFile(null)}>{tr('선택 취소 / 다시 촬영')}</button></div>}
+ <p className="hint" role="status">{message}</p><button type="button" onClick={()=>void locate()}>{tr('◎ 현재 GPS 기록')}</button>{gps&&<p className="hint">{new Date(gps.location_recorded_at).toLocaleString(uiLanguage)} · {gps.latitude}, {gps.longitude}</p>}<label>{tr('현장 메모')}<textarea maxLength={4000} value={note} onChange={e=>setNote(e.target.value)}/></label><TextAssistant context="report" value={note} onApply={setNote} disabled={busy}/><button className="primary" disabled={!file||busy||locating}>{tr(busy?'업로드 중…':'미리보기 확인 / 업로드')}</button></fieldset></form></section>;
+}
+

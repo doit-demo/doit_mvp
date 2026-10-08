@@ -13,7 +13,7 @@ export async function login(request:Request,env:Env){
  const now=Date.now();const key=await sha256(email+'|'+(request.headers.get('cf-connecting-ip')||'local'));
  const limit=await env.DB.prepare('INSERT INTO login_limits(key,count,reset_at) VALUES (?,1,?) ON CONFLICT(key) DO UPDATE SET count=CASE WHEN reset_at<? THEN 1 ELSE count+1 END,reset_at=CASE WHEN reset_at<? THEN ? ELSE reset_at END RETURNING count').bind(key,now+900000,now,now,now+900000).first<{count:number}>();
  if(limit&&limit.count>12)fail(429,'로그인 시도가 많습니다. 15분 후 다시 시도해 주세요.');
- const user=await env.DB.prepare('SELECT * FROM users WHERE email=?').bind(email).first<Actor&{password_hash:string}>();
+ const user=await env.DB.prepare('SELECT * FROM users WHERE email=? AND active=1').bind(email).first<Actor&{password_hash:string}>();
  const fallback='pbkdf2$100000$00112233445566778899aabbccddeeff$'+'0'.repeat(64);
  const valid=await verifyPassword(password,user?.password_hash||fallback);if(!user||!valid)fail(401,'이메일 또는 비밀번호가 올바르지 않습니다.');
  const token=crypto.randomUUID()+crypto.randomUUID(),csrf=crypto.randomUUID();
@@ -26,7 +26,7 @@ export async function actorFor(request:Request,env:Env){
  const match=(request.headers.get('cookie')||'').split(';').map(x=>x.trim()).find(x=>x.startsWith(`doit_${role}=`));
  if(!match)fail(401,'로그인이 필요합니다.');
  const hash=await sha256(match.slice(match.indexOf('=')+1));
- const actor=await env.DB.prepare('SELECT u.id,u.name,u.email,u.role,s.csrf,s.token_hash FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>? AND u.role=?').bind(hash,Date.now(),role).first<Actor>();
+ const actor=await env.DB.prepare('SELECT u.id,u.name,u.email,u.role,s.csrf,s.token_hash FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>? AND u.role=? AND u.active=1').bind(hash,Date.now(),role).first<Actor>();
  if(!actor)fail(401,'로그인이 만료되었습니다.');
  if(!['GET','HEAD'].includes(request.method)&&!equal(request.headers.get('x-csrf-token')||'',actor.csrf))fail(403,'인증 확인이 필요합니다. 다시 로그인해 주세요.');
  return actor;

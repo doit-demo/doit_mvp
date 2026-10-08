@@ -4,7 +4,7 @@ interface __BaseEnv_Env {
 	FILES: R2Bucket;
 	DB: D1Database;
 	ENVIRONMENT: "production";
-	VERSION: "R0.2.3";
+	VERSION: "R0.3.0";
 	UPLOAD_MAX_BYTES: "26214400";
 }
 declare namespace Cloudflare {
